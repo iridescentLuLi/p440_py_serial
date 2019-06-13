@@ -15,14 +15,18 @@ import socket
 from struct import *
 from threading import Thread, Condition, Lock
 import p440_config
+import datetime
 
 queue = []
 lock = Lock()
 count = 200
 
-ip = '192.168.1.100'
+ip = '192.168.1.110'
 port = 21210
-
+portx = "/dev/tty.usbmodem101"
+bps = 115200
+timex = 0.5
+ser = serial.Serial(portx,bps,timeout=timex)
 # global status
 update_figure_q = False
 producer_thread_running_q = False
@@ -96,6 +100,7 @@ class AppWindow(QMainWindow):
         self.ui.btn_close.mouseReleaseEvent = lambda self, event: app.quit()
         self.ui.pushButton_run_stop.clicked.connect(self.run_stop)
         self.ui.pushButton_clear.clicked.connect(self.clear)
+        self.ui.pushButton_save_data.clicked.connect(self.save_data)
 
         self.ui.btn_0.clicked.connect(lambda x:self.write_number(0))
         self.ui.btn_1.clicked.connect(lambda x:self.write_number(1))
@@ -111,8 +116,8 @@ class AppWindow(QMainWindow):
         self.ui.btn_del.clicked.connect(lambda x:self.write_number(-2))
 
     def read_config(self):
-
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #ser = serial.Serial(portx,bps,timeout=timex)
+        #s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         #set operation mode
         # s.sendto(pack('>HHI', 0xf003, 0, 1), (ip, port))
         # confirm_message, addr = s.recvfrom(1500)
@@ -121,13 +126,16 @@ class AppWindow(QMainWindow):
         # else:
         #     print('error')
         #     return
-        packet_get_config = pack('>HH', 0x1002, 0)
-        s.sendto(packet_get_config, (ip, port))
-        config_message, addr = s.recvfrom(1500)
+        packet_get_config = pack('>HHHH', 0xA5A5, 4, 0x1002, 0)
+        ser.write(packet_get_config)
+        #s.sendto(packet_get_config, (ip, port))
+        #config_message, addr = s.recvfrom(1500)
+        config_message = ser.read(1500)
         self.current_config = p440_config.Config(config_message)
-
+        print('current_config.pckt_len is : ')
+        print(self.current_config.pckt_len)
         #set gui
-
+        
         self.ui.lineEdit_distance_start.setText(str(p440_config.ps2m(self.current_config.scan_start)))
         self.ui.lineEdit_distance_end.setText(str(p440_config.ps2m(self.current_config.scan_end)))
 
@@ -136,21 +144,32 @@ class AppWindow(QMainWindow):
 
     def wrtie_config(self):
 
-        print('write config clicked')
+        #print('write config clicked')
         T1, T2 = p440_config.m2ps(float(self.ui.lineEdit_distance_start.text()), float(self.ui.lineEdit_distance_end.text()))
         self.current_config.scan_start = T1
         self.current_config.scan_end = T2
         self.current_config.transmit_gain = int(self.ui.lineEdit_gain.text())
         self.current_config.base_int_index = int(self.ui.lineEdit_integration_index.text())
 
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.sendto(self.current_config.to_bytes(), (ip, port))
-        confirm_message, addr = s.recvfrom(1500)
-        messtype, messid, status = unpack('>HHI', confirm_message)
+        #ser = serial.Serial(portx,bps,timeout=timex)
+        ser.write(self.current_config.to_bytes())
+        print(ser.isOpen)
+        confirm_message = ser.read(1500)
+        print('antenna_mode = ')
+        print(self.current_config.antenna_mode)
+
+    
+        #s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #s.sendto(self.current_config.to_bytes(), (ip, port))
+        #confirm_message, addr = s.recvfrom(1500)
+        
+        sync_pat, pckt_len, messtype, messid, status = unpack('>HHHHI', confirm_message)
+        
         if messtype == 0x1101 and status == 0:
             self.show_message('写入成功')
         else:
             self.show_message('写入失败')
+            
         
 
     def update_canvas(self):
@@ -241,6 +260,14 @@ class AppWindow(QMainWindow):
         
         edit.setText(current_text)
 
+    def save_data(self):
+
+        f_name = str(datetime.datetime.now()).replace(" ","_").replace(":","_")[0:-7]
+        print('date now: ')
+        print(f_name)
+        np.save(f_name, self.arr_original.get_array())
+        self.show_message(f_name + " 已保存")
+
     def show_message(self, text):
 
         msg = QMessageBox()
@@ -286,10 +313,11 @@ class AppWindow(QMainWindow):
 
 class ProducerThread(Thread):
     def run(self):
-        ip = '192.168.1.100'
+        ip = '192.168.1.110'
         port = 21210
 
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        ser = serial.Serial(portx,bps,timeout=timex)
         #s.settimeout(1.0)
         #s.connect((ip, port))
         count = 200
@@ -299,7 +327,9 @@ class ProducerThread(Thread):
 
         #s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         #s1.bind((ip, port))
-        start_of_number_of_samples = 2 * 2 + 4 * 6 + 4 * 2 + 2 + 4
+        start_of_number_of_samples = 4 * 2 + 4 * 6 + 4 * 2 + 2 + 4 
+        USBpfxNbyte = 4
+        Confirm_msgLen = 8
 
         dt = np.dtype(int)
         dt = dt.newbyteorder('>')
@@ -313,23 +343,29 @@ class ProducerThread(Thread):
             #print('received' + str(len(data)))
             #print(data[0:2])
             #print(data, addr)
-            packet_get_config = pack('>HHHHI', 0x1003, 0, 1, 0, 0)
-            s.sendto(packet_get_config, (ip, port))
+            packet_get_config = pack('>HHHHHHI', 0xA5A5, 12, 0x1003, 0, 1, 0, 0)
+
+            #s.sendto(packet_get_config, (ip, port))
+            ser.write(packet_get_config)
+            control_confirmMsg = ser.read(12)
+            if control_confirmMsg[4:6] == b'\x11\x03':
+                print('Data Received')
             while True:
-                data, addr = s.recvfrom(2000)
-                print(data)
-                print(len(data))
-                #print('received')
-                if data[0:2] == b'\xf2\x01':
+                #data, addr = s.recvfrom(2000)
+                data = ser.read(1456)
+                #data = data[17:]
+                #print(data)
+                #print(len(data))
+                if data[4:6] == b'\xf2\x01':
 
                     this_len, total_len, this_index, total_index = unpack('>HIHH', data[start_of_number_of_samples:start_of_number_of_samples + 10])
-                    print(this_len, total_len)
+                    #print(this_len, total_len)
                     if this_index == 0:
                         binary_buff = b''
                     temp = data[start_of_number_of_samples + 10: start_of_number_of_samples + 10 + this_len * 4]
                     binary_buff = binary_buff + temp
                     if this_index == total_index - 1:
-                        print('binarybuff ' + str(i))
+                        #print('binarybuff ' + str(i))
                         #print(binary_buff)
                         new_signal = np.frombuffer(binary_buff, dtype = dt)
                         lock.acquire()

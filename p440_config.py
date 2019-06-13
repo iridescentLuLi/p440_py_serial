@@ -27,8 +27,8 @@ class Config:
         '''
             frame_bytes is confirm message
         '''
-        struct_pattern = '>HHIiiHHHHHHBBBBBBBBII'
-        (self.message_type, self.message_id, self.node_id, self.scan_start, self.scan_end,
+        struct_pattern = '>HHHHIiiHHHHHHBBBBBBBBII'
+        (self.sync_pat, self.pckt_len, self.message_type, self.message_id, self.node_id, self.scan_start, self.scan_end,
         self.scan_resolution, self.base_int_index, self.seg1, self.seg2,
         self.seg3, self.seg4, self.seg1_int, self.seg2_int, self.seg3_int,
         self.seg4_int, self.antenna_mode, self.transmit_gain,
@@ -42,10 +42,11 @@ class Config:
         self.message_type = 0x1001
         self.node_id = 100
         self.scan_resolution = 32
-        struct_pattern = '>HHIiiHHHHHHBBBBBBBB'
+        self.pckt_len = 36
+        struct_pattern = '>HHHHIiiHHHHHHBBBBBBBB'
         return pack(
             struct_pattern,
-            self.message_type, self.message_id, self.node_id, self.scan_start, self.scan_end,
+            self.sync_pat, self.pckt_len, self.message_type, self.message_id, self.node_id, self.scan_start, self.scan_end,
         self.scan_resolution, self.base_int_index, self.seg1, self.seg2,
         self.seg3, self.seg4, self.seg1_int, self.seg2_int, self.seg3_int,
         self.seg4_int, self.antenna_mode, self.transmit_gain,
